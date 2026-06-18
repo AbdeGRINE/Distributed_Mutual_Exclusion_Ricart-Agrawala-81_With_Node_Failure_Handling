@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RA81 — Exclusion Mutuelle Distribuée</title>
+<style>
+  /* ── Design tokens ─────────────────────────────────────────────────── */
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #1c2128;
+    --border:    #30363d;
+    --text:      #e6edf3;
+    --muted:     #7d8590;
+    --idle:      #3d444d;
+    --idle-fg:   #8b949e;
+    --waiting:   #1a3a5c;
+    --waiting-fg:#58a6ff;
+    --waiting-bd:#388bfd;
+    --cs:        #1a3a25;
+    --cs-fg:     #3fb950;
+    --cs-bd:     #238636;
+    --failed:    #3a1a1a;
+    --failed-fg: #f85149;
+    --failed-bd: #da3633;
+    --offline:   #21262d;
+    --offline-fg:#484f58;
+    --accent:    #f78166;
+    --purple:    #bc8cff;
+    --yellow:    #e3b341;
+    --mono:      'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --sans:      -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .header-title {
+    flex: 1;
+  }
+  header h1 {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+  header .subtitle {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--cs-fg);
+    display: inline-block;
+    margin-right: 6px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:.4; transform:scale(1.3); }
+  }
+  .tick-info {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+  .speed-ctrl {
+    display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);
+  }
+  .speed-ctrl select {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); padding: 4px 8px; border-radius: 6px; font-size:12px;
+    cursor:pointer;
+  }
+
+  /* ── Legend ─────────────────────────────────────────────────────────── */
+  .legend {
+    display: flex; gap: 16px; flex-wrap:wrap;
+    padding: 10px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .leg-item { display:flex; align-items:center; gap:6px; color:var(--muted); }
+  .leg-dot {
+    width:10px; height:10px; border-radius:3px;
+  }
+
+  /* ── Main layout ────────────────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    height: calc(100vh - 90px);
+  }
+
+  /* ── Process grid ────────────────────────────────────────────────────── */
+  .proc-grid {
+    padding: 20px;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 12px;
+    overflow: auto;
+  }
+
+  .proc-card {
+    border-radius: 10px;
+    border: 2px solid var(--border);
+    background: var(--surface);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .proc-card::before {
+    content:'';
+    position:absolute; left:0; top:0; bottom:0; width:4px;
+    border-radius:10px 0 0 10px;
+    transition: background 0.25s;
+  }
+  .proc-card.idle    { background:var(--surface);  border-color:var(--border);     }
+  .proc-card.idle::before { background: var(--idle-fg); }
+  .proc-card.waiting { background:var(--waiting);  border-color:var(--waiting-bd); box-shadow: 0 0 0 1px var(--waiting-bd)33; }
+  .proc-card.waiting::before { background: var(--waiting-bd); }
+  .proc-card.in_cs   { background:var(--cs);       border-color:var(--cs-bd);      box-shadow: 0 0 12px var(--cs-bd)55; }
+  .proc-card.in_cs::before { background: var(--cs-fg); }
+  .proc-card.failed  { background:var(--failed);   border-color:var(--failed-bd);  opacity:.8; }
+  .proc-card.failed::before { background: var(--failed-bd); }
+  .proc-card.offline { background:var(--offline);  border-color:var(--border);     opacity:.5; }
+
+  .proc-header {
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .proc-id {
+    font-size:22px; font-weight:800;
+    font-family:var(--mono);
+    color:var(--text);
+  }
+  .proc-state-badge {
+    font-size:10px; font-weight:700; letter-spacing:.5px;
+    padding:3px 8px; border-radius:20px;
+    text-transform:uppercase;
+  }
+  .badge-idle    { background:#30363d; color:var(--idle-fg); }
+  .badge-waiting { background:var(--waiting); color:var(--waiting-fg); border:1px solid var(--waiting-bd); }
+  .badge-in_cs   { background:var(--cs);      color:var(--cs-fg);      border:1px solid var(--cs-bd); }
+  .badge-failed  { background:var(--failed);  color:var(--failed-fd);  border:1px solid var(--failed-bd); color:var(--failed-fg); }
+  .badge-offline { background:var(--offline); color:var(--offline-fg); }
+
+  .proc-stats {
+    display:grid; grid-template-columns:1fr 1fr; gap:4px;
+    font-size:11px; font-family:var(--mono);
+  }
+  .stat-label { color:var(--muted); }
+  .stat-value { color:var(--text); font-weight:600; text-align:right; }
+  .stat-value.highlight { color:var(--yellow); }
+  .stat-value.accent    { color:var(--accent); }
+
+  .deferred-row {
+    display:flex; flex-wrap:wrap; gap:4px; min-height:20px;
+  }
+  .deferred-chip {
+    background: #3d2a1a; border:1px solid #6e3e1e;
+    color:#f0883e; font-family:var(--mono);
+    font-size:10px; padding:2px 6px; border-radius:12px;
+    font-weight:700;
+  }
+  .deferred-empty {
+    font-size:10px; color:var(--muted); font-style:italic;
+  }
+
+  .fail-btn {
+    margin-top:2px; padding:5px 0;
+    border: 1px solid var(--border);
+    background: transparent; color:var(--muted);
+    border-radius:6px; font-size:10px; cursor:pointer;
+    transition: all .2s;
+    font-family:var(--sans);
+    letter-spacing:.3px;
+  }
+  .fail-btn:hover { border-color:var(--failed-bd); color:var(--failed-fg); background:var(--failed); }
+  .proc-card.failed .fail-btn { border-color:var(--cs-bd); color:var(--cs-fg); }
+  .proc-card.failed .fail-btn:hover { background:var(--cs); }
+
+  /* ── Timeline + log panel ────────────────────────────────────────────── */
+  .side-panel {
+    border-left: 1px solid var(--border);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ── Matrix view ─────────────────────────────────────────────────────── */
+  .matrix-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .section-title {
+    font-size:11px; font-weight:700; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.8px;
+    margin-bottom:10px;
+  }
+  .req-matrix {
+    display:grid;
+    grid-template-columns: 24px repeat(10, 1fr);
+    gap:2px;
+    font-family:var(--mono);
+    font-size:9px;
+  }
+  .matrix-hdr { color:var(--muted); text-align:center; padding:2px; }
+  .matrix-row-lbl { color:var(--muted); text-align:right; padding-right:4px; line-height:18px; }
+  .matrix-cell {
+    height:18px; border-radius:3px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:8px; font-weight:700;
+    background:var(--surface); color:var(--muted);
+    transition: background .3s;
+    overflow:hidden;
+  }
+  .matrix-cell.self { background:#21262d; color:#30363d; }
+  .matrix-cell.has-req { background:#1a2a4a; color:var(--waiting-fg); }
+
+  /* ── Event log ────────────────────────────────────────────────────────── */
+  .log-section {
+    flex:1; display:flex; flex-direction:column; overflow:hidden;
+    padding:0;
+  }
+  .log-title {
+    font-size:11px; font-weight:700; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.8px;
+    padding:12px 16px 8px;
+    border-bottom:1px solid var(--border);
+  }
+  .log-list {
+    flex:1; overflow-y:auto; padding:8px 12px;
+    display:flex; flex-direction:column-reverse;
+  }
+  .log-entry {
+    display:flex; align-items:flex-start; gap:8px;
+    padding:5px 4px;
+    border-bottom:1px solid #21262d;
+    font-size:11px; font-family:var(--mono);
+    animation: fadein .3s ease;
+  }
+  @keyframes fadein { from { opacity:0; transform:translateY(-4px); } to { opacity:1; } }
+  .log-time { color:var(--muted); min-width:58px; flex-shrink:0; }
+  .log-pid  { min-width:24px; flex-shrink:0; font-weight:700; }
+  .log-msg  { color:var(--text); line-height:1.4; word-break:break-all; }
+  .log-pid.c-idle    { color:var(--idle-fg); }
+  .log-pid.c-waiting { color:var(--waiting-fg); }
+  .log-pid.c-in_cs   { color:var(--cs-fg); }
+  .log-pid.c-failed  { color:var(--failed-fg); }
+
+  /* ── Stats bar ──────────────────────────────────────────────────────── */
+  .stats-bar {
+    grid-column:1/-1;
+    background:var(--surface);
+    border-top:1px solid var(--border);
+    padding:8px 24px;
+    display:flex; gap:32px; align-items:center;
+    font-size:12px;
+    flex-wrap:wrap;
+  }
+  .stat-chip { display:flex; align-items:center; gap:6px; }
+  .stat-chip span { color:var(--muted); }
+  .stat-chip strong { color:var(--text); font-family:var(--mono); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width:5px; height:5px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#30363d; border-radius:3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">
+    <h1><span class="live-dot"></span>Ricart &amp; Agrawala 81 — Exclusion Mutuelle Distribuée</h1>
+    <div class="subtitle">10 processus pairs · Horloges de Lamport · TCP Sockets · Simulation en temps réel</div>
+  </div>
+  <div class="tick-info" id="tick-info">Tick: —</div>
+  <div class="speed-ctrl">
+    <span>Refresh</span>
+    <select id="speed-sel" onchange="setSpeed(this.value)">
+      <option value="400">400ms</option>
+      <option value="800" selected>800ms</option>
+      <option value="1500">1.5s</option>
+      <option value="3000">3s</option>
+    </select>
+  </div>
+</header>
+
+<div class="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#484f58"></div>IDLE — En attente aléatoire</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#388bfd"></div>WAITING — Demande SC en cours</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#238636"></div>IN_CS — En section critique</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#da3633"></div>FAILED — Panne simulée (cliquer pour relancer)</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#21262d"></div>OFFLINE — Processus non démarré</div>
+</div>
+
+<div class="main">
+  <!-- Process cards 1..10 -->
+  <div class="proc-grid" id="proc-grid"></div>
+
+  <!-- Side panel: matrix + log -->
+  <div class="side-panel">
+    <div class="matrix-section">
+      <div class="section-title">📡 Matrice requêtes reçues (estampilles)</div>
+      <div class="req-matrix" id="req-matrix"></div>
+    </div>
+    <div class="log-section">
+      <div class="log-title">📋 Journal d'événements</div>
+      <div class="log-list" id="log-list"></div>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <div class="stat-chip"><span>En SC:</span><strong id="s-in-cs">—</strong></div>
+    <div class="stat-chip"><span>En attente:</span><strong id="s-waiting">—</strong></div>
+    <div class="stat-chip"><span>IDLE:</span><strong id="s-idle">—</strong></div>
+    <div class="stat-chip"><span>Pannes:</span><strong id="s-failed" style="color:var(--failed-fg)">—</strong></div>
+    <div class="stat-chip"><span>Max horloge:</span><strong id="s-maxclock" style="color:var(--yellow)">—</strong></div>
+    <div class="stat-chip"><span>Total accès SC:</span><strong id="s-cs-count" style="color:var(--cs-fg)">—</strong></div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let prevStates = [];
+let pollTimer = null;
+let pollInterval = 800;
+let csCount = 0;
+let prevCS = new Set();
+const MAX_LOG = 120;
+let logEntries = [];
+
+// ── Polling ────────────────────────────────────────────────────────────────
+async function fetchState() {
+  try {
+    const r = await fetch('/state');
+    const data = await r.json();
+    update(data);
+  } catch(e) {
+    document.getElementById('tick-info').textContent = 'Tick: connexion échouée';
+  }
+  pollTimer = setTimeout(fetchState, pollInterval);
+}
+
+function setSpeed(v) {
+  pollInterval = parseInt(v);
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(fetchState, 100);
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────
+function stateClass(s) {
+  if (!s) return 'offline';
+  switch(s.state) {
+    case 'IDLE':    return 'idle';
+    case 'WAITING': return 'waiting';
+    case 'IN_CS':   return 'in_cs';
+    case 'FAILED':  return 'failed';
+    default:        return 'offline';
+  }
+}
+
+function update(states) {
+  const now = new Date();
+  const ts = now.toTimeString().slice(0,8) + '.' + String(now.getMilliseconds()).padStart(3,'0');
+  document.getElementById('tick-info').textContent = 'Tick: ' + ts;
+
+  renderCards(states);
+  renderMatrix(states);
+  updateStats(states);
+  detectEvents(states, ts);
+
+  prevStates = states;
+}
+
+function renderCards(states) {
+  const grid = document.getElementById('proc-grid');
+  if (grid.children.length !== 10) {
+    grid.innerHTML = '';
+    for (let i = 0; i < 10; i++) {
+      grid.appendChild(document.createElement('div'));
+    }
+  }
+
+  states.forEach((s, idx) => {
+    const id = s.id;
+    const cls = stateClass(s);
+    const card = grid.children[idx];
+    card.className = `proc-card ${cls}`;
+
+    const deferred = (s.deferred || []);
+    const deferHtml = deferred.length
+      ? deferred.map(j => `<span class="deferred-chip">P${j}</span>`).join('')
+      : '<span class="deferred-empty">aucune</span>';
+
+    const repliesLeft = s.replies_needed || 0;
+    const repliesTotal = 9;
+    const repliesDone = repliesTotal - repliesLeft;
+    const progressPct = s.state === 'WAITING' ? Math.round((repliesDone / repliesTotal) * 100) : 0;
+
+    let progressBar = '';
+    if (s.state === 'WAITING') {
+      progressBar = `
+        <div style="height:3px;background:#21262d;border-radius:2px;overflow:hidden;margin:2px 0">
+          <div style="height:100%;width:${progressPct}%;background:var(--waiting-bd);transition:width .3s;border-radius:2px"></div>
+        </div>`;
+    }
+
+    const badgeClass = {
+      'idle':'badge-idle','waiting':'badge-waiting',
+      'in_cs':'badge-in_cs','failed':'badge-failed','offline':'badge-offline'
+    }[cls] || 'badge-offline';
+
+    const stateLabel = {
+      'idle':'IDLE','waiting':'WAITING','in_cs':'EN SC','failed':'PANNE','offline':'HORS-LIGNE'
+    }[cls] || '?';
+
+    const failLabel = cls === 'failed' ? '↺ Redémarrer' : '⚡ Simuler panne';
+
+    card.innerHTML = `
+      <div class="proc-header">
+        <span class="proc-id">P${id}</span>
+        <span class="proc-state-badge ${badgeClass}">${stateLabel}</span>
+      </div>
+      ${progressBar}
+      <div class="proc-stats">
+        <span class="stat-label">Horloge</span>
+        <span class="stat-value highlight">${s.clock}</span>
+        <span class="stat-label">Estampille (osn)</span>
+        <span class="stat-value accent">${s.osn || 0}</span>
+        <span class="stat-label">REP attendues</span>
+        <span class="stat-value">${s.state === 'WAITING' ? repliesLeft + '/' + repliesTotal : '—'}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">Réponses différées :</div>
+      <div class="deferred-row">${deferHtml}</div>
+      <button class="fail-btn" onclick="toggleFail(event, ${id})">${failLabel}</button>
+    `;
+  });
+}
+
+function renderMatrix(states) {
+  const mat = document.getElementById('req-matrix');
+  // Build: row=receiver, col=sender's req ts seen by receiver (peer_req_ts)
+  // We show: for each receiver i, what is the req timestamp it saw from sender j
+
+  let html = '<div class="matrix-hdr"></div>';
+  for (let j = 1; j <= 10; j++) html += `<div class="matrix-hdr">P${j}</div>`;
+
+  states.forEach(s => {
+    html += `<div class="matrix-row-lbl">P${s.id}</div>`;
+    for (let j = 1; j <= 10; j++) {
+      if (j === s.id) {
+        html += `<div class="matrix-cell self">·</div>`;
+      } else {
+        const ts = (s.peer_req_ts || {})[String(j)] || 0;
+        const hasReq = ts > 0;
+        html += `<div class="matrix-cell${hasReq ? ' has-req' : ''}" title="P${s.id} saw last REQ from P${j} with ts=${ts}">${ts > 0 ? ts : ''}</div>`;
+      }
+    }
+  });
+
+  mat.innerHTML = html;
+}
+
+function updateStats(states) {
+  const inCs    = states.filter(s => s.state === 'IN_CS').length;
+  const waiting = states.filter(s => s.state === 'WAITING').length;
+  const idle    = states.filter(s => s.state === 'IDLE').length;
+  const failed  = states.filter(s => s.state === 'FAILED').length;
+  const maxClk  = Math.max(...states.map(s => s.clock || 0));
+
+  // Count new CS entries
+  const curCS = new Set(states.filter(s => s.state === 'IN_CS').map(s => s.id));
+  curCS.forEach(id => { if (!prevCS.has(id)) csCount++; });
+  prevCS = curCS;
+
+  document.getElementById('s-in-cs').textContent    = inCs;
+  document.getElementById('s-waiting').textContent  = waiting;
+  document.getElementById('s-idle').textContent     = idle;
+  document.getElementById('s-failed').textContent   = failed;
+  document.getElementById('s-maxclock').textContent = maxClk;
+  document.getElementById('s-cs-count').textContent = csCount;
+}
+
+// ── Event detection (log state transitions) ──────────────────────────────
+const prevStateMap = {};
+function detectEvents(states, ts) {
+  states.forEach(s => {
+    const prev = prevStateMap[s.id];
+    const cur = s.state;
+    if (prev !== cur) {
+      let msg = '';
+      const cls = stateClass(s);
+      if (cur === 'WAITING') msg = `Req SC diffusée (osn=${s.osn}, h=${s.clock})`;
+      else if (cur === 'IN_CS')  msg = `→ ENTRÉE en SC (osn=${s.osn})`;
+      else if (cur === 'IDLE' && prev === 'IN_CS') msg = `← SORTIE de SC`;
+      else if (cur === 'FAILED') msg = `⚡ PANNE simulée`;
+      else if (cur === 'IDLE' && prev === 'FAILED') msg = `↺ Redémarrage`;
+      if (msg) addLog(ts, s.id, msg, cls);
+      prevStateMap[s.id] = cur;
+    }
+
+    // Log deferred replies if changed
+    const dKey = `defer-${s.id}`;
+    const curDefer = JSON.stringify(s.deferred || []);
+    if (prevStateMap[dKey] !== curDefer) {
+      const d = s.deferred || [];
+      if (d.length > 0) {
+        addLog(ts, s.id, `Différé vers: P${d.join(', P')}`, stateClass(s));
+      }
+      prevStateMap[dKey] = curDefer;
+    }
+  });
+}
+
+function addLog(ts, pid, msg, cls) {
+  logEntries.unshift({ ts, pid, msg, cls });
+  if (logEntries.length > MAX_LOG) logEntries.pop();
+
+  const list = document.getElementById('log-list');
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `
+    <span class="log-time">${ts.slice(-12)}</span>
+    <span class="log-pid c-${cls}">P${pid}</span>
+    <span class="log-msg">${escapeHtml(msg)}</span>
+  `;
+  // prepend (list is column-reverse so this shows at top)
+  if (list.firstChild) list.insertBefore(el, list.firstChild);
+  else list.appendChild(el);
+  if (list.children.length > MAX_LOG) list.removeChild(list.lastChild);
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Fault injection ──────────────────────────────────────────────────────
+async function toggleFail(ev, id) {
+  ev.stopPropagation();
+  try {
+    await fetch(`/fail/${id}`, { method: 'POST' });
+  } catch(e) {
+    alert('Impossible de contacter le serveur de contrôle');
+  }
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────
+fetchState();
+</script>
+</body>
+</html>
