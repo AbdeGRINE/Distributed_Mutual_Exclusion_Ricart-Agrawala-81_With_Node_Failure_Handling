@@ -123,7 +123,8 @@ Sending SIGUSR1 again → **restart** (IDLE state).
 
 Available at `http://localhost:8080`
 
-![Dashboard screenshot](Dashboard_Screenshot‎.png)
+![Dashboard screenshot](dashboard-screenshot.png)
+
 | Zone | Content |
 |------|---------|
 | **Process cards** | State, Lamport clock, osn timestamp, REP messages awaited (progress bar), deferred replies, failure button |
