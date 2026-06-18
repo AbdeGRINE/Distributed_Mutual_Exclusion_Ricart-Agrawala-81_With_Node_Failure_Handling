@@ -144,7 +144,7 @@ Envoyer à nouveau SIGUSR1 → **redémarrage** (état IDLE).
 ## Interface graphique — Dashboard
 
 Accessible sur `http://localhost:8080`
-![alt text](Screenshot From 2026-06-18 16-03-39.png)
+![Dashboard screenshot](Screenshot%20From%202026-06-18%2016-03-39.png)
 
 | Zone | Contenu |
 |------|---------|
