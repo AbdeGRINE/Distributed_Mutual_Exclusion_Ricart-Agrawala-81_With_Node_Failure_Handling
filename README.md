@@ -1,169 +1,148 @@
-# RA81 — Simulation d'Exclusion Mutuelle Distribuée (Ricart & Agrawala 1981)
+# RA81 — Distributed Mutual Exclusion Simulation (Ricart & Agrawala 1981)
 
-**SYSR – 2CS · ESI · Par D.E. MENACER**
+**SYSR – 2CS · ESI · By D.E. MENACER**
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  ra81_process (×10 instances)               │
-│  ┌────────────────┐    ┌──────────────────────────────────┐ │
-│  │ Listener Thread │    │         Main Loop Thread          │ │
-│  │ (TCP server)    │    │  idle(1-5s) → REQ → wait REPs    │ │
-│  │ accept() loop   │◄──►│  → CS(1-2s) → release            │ │
-│  │ handle_message()│    └──────────────────────────────────┘ │
-│  └────────────────┘                                          │
-│       │  ↕ TCP (port 9001..9010)                             │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │    /tmp/ra81_proc_<id>.json   (état partagé GUI)       │  │
-│  └────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-            ↕ HTTP GET /state   ↕ POST /fail/<id>
-┌─────────────────────────────────────────────────────────────┐
-│              ra81_server.py (port 8080)                      │
-│        Agrège les JSON → API REST → Dashboard HTML           │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Structure du projet
+## Project Structure
 
 ```
 ra81_sim/
 ├── include/
-│   └── ra81_common.h       # Types partagés, constantes, ports
+│   └── ra81_common.h       # Shared types, constants, ports
 ├── src/
-│   └── ra81_process.cpp    # Implémentation complète RA81
+│   └── ra81_process.cpp    # Full RA81 implementation
 ├── gui/
-│   └── dashboard.html      # Interface graphique temps-réel
-├── ra81_server.py          # Serveur HTTP pour le dashboard
+│   └── dashboard.html      # Real-time graphical interface
+├── ra81_server.py          # HTTP server for the dashboard
 └── Makefile
 ```
 
-## Compilation
+## Build
 
 ```bash
 make
 ```
-Nécessite : `g++ ≥ 7`, C++17, POSIX (Linux/macOS).
+Requires: `g++ ≥ 7`, C++17, POSIX (Linux/macOS).
 
-## Démarrage complet
+## Full Startup
 
-### Option 1 — Makefile (tout en une commande)
+### Option 1 — Makefile (everything in one command)
 ```bash
-make start          # Lance les 10 processus en arrière-plan
-python3 ra81_server.py 8080  # Lance le serveur de dashboard
-# Ouvrir http://localhost:8080
+make start          # Launches the 10 processes in the background
+python3 ra81_server.py 8080  # Launches the dashboard server
+# Open http://localhost:8080
 ```
 
-### Option 2 — Manuel
+### Option 2 — Manual
 ```bash
-# Terminal 1..10 (ou en arrière-plan) :
+# Terminal 1..10 (or in the background):
 ./ra81_process 1 &
 ./ra81_process 2 &
 ...
 ./ra81_process 10 &
 
-# Terminal dashboard :
+# Dashboard terminal:
 python3 ra81_server.py 8080
 ```
 
-### Arrêt
+### Stop
 ```bash
 make stop
 ```
 
-## Encodage des ports TCP
+## TCP Port Encoding
 
-Chaque processus `i` (1..10) écoute sur le port **9000 + i** :
+Each process `i` (1..10) listens on port **9000 + i**:
 - P1 → 9001, P2 → 9002, ..., P10 → 9010
-- Défini dans `include/ra81_common.h` : `process_port(id) = BASE_PORT + id`
+- Defined in `include/ra81_common.h`: `process_port(id) = BASE_PORT + id`
 
-## Algorithme RA81 implémenté
+## RA81 Algorithm Implementation
 
-### Variables locales par processus Pᵢ
-- `g_clock` : horloge de Lamport
-- `g_osn`   : estampille de la requête courante
-- `g_replies_needed` : nombre de REP encore attendues (initialisé à N-1)
-- `g_sc_wanted` : Pᵢ désire entrer en SC
-- `g_deferred[j]` : réponse différée vers Pⱼ
+### Local variables per process Pᵢ
+- `g_clock`: Lamport clock
+- `g_osn`: timestamp of the current request
+- `g_replies_needed`: number of REP messages still expected (initialized to N-1)
+- `g_sc_wanted`: Pᵢ wants to enter the critical section
+- `g_deferred[j]`: deferred reply toward Pⱼ
 
-### Protocole (3 étapes)
+### Protocol (3 steps)
 
-**1. Demande d'entrée en SC :**
+**1. Requesting entry into the critical section:**
 ```
 clock++ ; osn = clock ; sc_wanted = true ; replies_needed = N-1
-Diffuser (REQ, osn, i) à tous les autres
-Attendre (replies_needed == 0)
+Broadcast (REQ, osn, i) to all others
+Wait until (replies_needed == 0)
 ```
 
-**2. Réception d'un REQ de Pⱼ :**
+**2. Receiving a REQ from Pⱼ:**
 ```
-Si sc_wanted ET (osn < ts_j OU (osn == ts_j ET i < j)) :
-    Différer la réponse  →  deferred[j] = true
-Sinon :
-    Envoyer (REP) à j immédiatement
+If sc_wanted AND (osn < ts_j OR (osn == ts_j AND i < j)):
+    Defer the reply  →  deferred[j] = true
+Else:
+    Send (REP) to j immediately
 ```
 
-**3. Sortie de SC :**
+**3. Exiting the critical section:**
 ```
 sc_wanted = false
-Pour tout j où deferred[j] : envoyer (REP) à j
+For every j where deferred[j]: send (REP) to j
 ```
 
-### Complexité
-- **2(N-1) messages** par entrée en SC : (N-1) REQ + (N-1) REP
+### Complexity
+- **2(N-1) messages** per entry into the critical section: (N-1) REQ + (N-1) REP
 
-### Conditions de Dijkstra satisfaites
-- ✅ **Exclusion mutuelle** : un seul processus en SC à la fois
-- ✅ **Attente finie** : ordre total sur les estampilles évite la famine
-- ✅ **Non-blocage** : pas d'interblocage possible
-- ✅ **Équité** : priorité basée sur l'estampille + ID (bris d'égalité)
+### Dijkstra's Conditions Satisfied
+- ✅ **Mutual exclusion**: only one process in the critical section at a time
+- ✅ **Bounded waiting**: total order on timestamps prevents starvation
+- ✅ **Deadlock-free**: no possible deadlock
+- ✅ **Fairness**: priority based on timestamp + ID (tie-breaker)
 
-## Simulation de pannes
+## Failure Simulation
 
-### Injection de panne (SIGUSR1)
+### Injecting a Failure (SIGUSR1)
 ```bash
-make fail ID=3      # Toggle PANNE sur P3
-# ou directement :
-kill -SIGUSR1 <PID_de_P3>
+make fail ID=3      # Toggle FAILURE on P3
+# or directly:
+kill -SIGUSR1 <PID_of_P3>
 ```
 
-Depuis le dashboard : cliquer sur **"⚡ Simuler panne"** sur la carte du processus.
+From the dashboard: click **"⚡ Simulate Failure"** on the process card.
 
-### Comportement en cas de panne
-Un processus en panne (`FAILED`) :
-- N'écoute plus les REQ entrants
-- N'émet plus de REQ
-- Annule son attente de REP si en cours
-- Les autres processus deviennent bloqués si le processus en panne
-  devait leur envoyer un REP (limite de RA81 de base, sans tolérance
-  aux pannes complète — cf. extension avec messages ABSENT/RENTRÉE).
+### Behavior on Failure
+A failed process (`FAILED`):
+- No longer listens for incoming REQ messages
+- No longer sends REQ messages
+- Cancels its pending REP wait, if any
+- Other processes become blocked if the failed process
+  was supposed to send them a REP (a limitation of base RA81,
+  without full fault tolerance — see the extension with
+  ABSENT/RETURNED messages).
 
-Envoyer à nouveau SIGUSR1 → **redémarrage** (état IDLE).
+Sending SIGUSR1 again → **restart** (IDLE state).
 
-## Interface graphique — Dashboard
+## Graphical Interface — Dashboard
 
-Accessible sur `http://localhost:8080`
-![Dashboard screenshot](Screenshot%20From%202026-06-18%2016-03-39.png)
+Available at `http://localhost:8080`
 
-| Zone | Contenu |
+![Dashboard screenshot](screenshot-dashboard.png)
+
+| Zone | Content |
 |------|---------|
-| **Cartes processus** | État, horloge Lamport, estampille osn, REP attendues (barre de progression), réponses différées, bouton panne |
-| **Matrice REQ** | Pour chaque paire (récepteur, émetteur) : dernière estampille de REQ reçue |
-| **Journal** | Horodatage des transitions d'état (IDLE→WAITING→IN_CS→IDLE) et différés |
-| **Barre de stats** | Compteurs globaux : en SC, en attente, pannes, max horloge, total accès SC |
+| **Process cards** | State, Lamport clock, osn timestamp, REP messages awaited (progress bar), deferred replies, failure button |
+| **REQ matrix** | For each pair (receiver, sender): the latest received REQ timestamp |
+| **Log** | Timestamps of state transitions (IDLE→WAITING→IN_CS→IDLE) and deferrals |
+| **Stats bar** | Global counters: in critical section, waiting, failures, max clock, total CS accesses |
 
-Taux de rafraîchissement configurable : 400ms / 800ms / 1.5s / 3s.
+Configurable refresh rate: 400ms / 800ms / 1.5s / 3s.
 
-## Logs texte
+## Text Logs
 
 ```bash
-tail -f /tmp/ra81_1.log    # Log de P1
-make watch ID=5            # Log de P5
+tail -f /tmp/ra81_1.log    # P1 log
+make watch ID=5            # P5 log
 ```
 
-## Références
+## References
 
 - Ricart G., Agrawala A.K. (1981). *An optimal algorithm for mutual exclusion in computer networks.* CACM 24(1):9-17.
 - Lamport L. (1978). *Time, clocks and the ordering of events in a distributed system.* CACM 21(7):558-565.
-- D.E. MENACER, *SYSR – 2CS Chapitre 5 : Exclusion Mutuelle répartie*, ESI 2026.
+- D.E. MENACER, *SYSR – 2CS Chapter 5: Distributed Mutual Exclusion*, ESI 2026.
